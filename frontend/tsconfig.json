@@ -1,0 +1,45 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "lib": [
+      "ESNext",
+      "DOM"
+    ],
+    "jsx": "react-native",
+    "strict": true,
+    "strictPropertyInitialization": false,
+    "moduleResolution": "node",
+    "moduleSuffixes": [
+      ".native",
+      ".web",
+      ".ios",
+      ".android",
+      ""
+    ],
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false,
+    "useDefineForClassFields": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    }
+  },
+  "include": [
+    "App.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "babel.config.js"
+  ],
+  "extends": "expo/tsconfig.base"
+}

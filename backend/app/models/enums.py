@@ -1,0 +1,61 @@
+from enum import StrEnum
+
+
+class RelationshipType(StrEnum):
+    """Relationship between a user and a child."""
+
+    FATHER = "father"
+    MOTHER = "mother"
+    GRANDFATHER = "grandfather"
+    GRANDMOTHER = "grandmother"
+    BABYSITTER = "babysitter"
+    OTHER = "other"
+
+
+class UserRole(StrEnum):
+    """Permission role for a user account."""
+
+    ADMIN = "admin"
+    EDITOR = "editor"
+    VIEWER = "viewer"
+
+
+class Gender(StrEnum):
+    """Child's gender (used for growth curve statistics, etc.)."""
+
+    MALE = "male"
+    FEMALE = "female"
+    UNSPECIFIED = "unspecified"
+
+
+class RecordCategory(StrEnum):
+    """Category of growth and daily life log records."""
+
+    MILK = "milk"
+    BABY_FOOD = "baby_food"
+    MEAL = "meal"
+    SLEEP = "sleep"
+    EXCRETION = "excretion"
+    BODY_TEMP = "body_temp"
+    HEIGHT = "height"
+    WEIGHT = "weight"
+    HEAD_CIRCUMFERENCE = "head_circumference"
+    CHEST_CIRCUMFERENCE = "chest_circumference"
+    FOOT_SIZE = "foot_size"
+    CUSTOM = "custom"
+
+
+class FrequencyType(StrEnum):
+    """Medication intake timing/frequency type."""
+
+    AFTER_MEAL = "after_meal"
+    INTERVAL_HOURS = "interval_hours"
+    SPECIFIC_TIME = "specific_time"
+
+
+class CameraEventType(StrEnum):
+    """Event type detected by edge AI smart cameras."""
+
+    SLEEP_START = "sleep_start"
+    SLEEP_END = "sleep_end"
+    ROLLOVER = "rollover"

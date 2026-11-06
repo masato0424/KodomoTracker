@@ -1,0 +1,25 @@
+{
+    "name": "Python 3.12 AI Dev Environment",
+    "build": {
+      "dockerfile": "Dockerfile",
+      "context": ".."
+    },
+    "customizations": {
+      "vscode": {
+        "extensions": [
+          "ms-python.python",
+          "ms-python.vscode-pylance",
+          "charliermarsh.ruff"
+        ]
+      }
+    },
+    "features": {
+      "ghcr.io/devcontainers/features/github-cli:1": {}
+    },
+    "remoteEnv": {
+      "GH_TOKEN": "${localEnv:GH_TOKEN}"
+    },
+    "forwardPorts": [8000, 8081],
+    "postCreateCommand": "pip install --upgrade pip && if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi && if [ -f frontend/package.json ]; then cd frontend && npm install; fi",
+    "remoteUser": "vscode"
+  }
