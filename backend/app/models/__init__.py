@@ -2,10 +2,12 @@ from app.models.camera_event import CameraEvent
 from app.models.child import Child
 from app.models.enums import (
     CameraEventType,
+    ChildColorTheme,
     FrequencyType,
     Gender,
     RecordCategory,
     RelationshipType,
+    ThemeMode,
     UserRole,
 )
 from app.models.nursery_menu import NurseryMenu
@@ -17,6 +19,7 @@ __all__ = [
     "CameraEvent",
     "CameraEventType",
     "Child",
+    "ChildColorTheme",
     "FrequencyType",
     "Gender",
     "NurseryMenu",
@@ -24,6 +27,7 @@ __all__ = [
     "Record",
     "RecordCategory",
     "RelationshipType",
+    "ThemeMode",
     "User",
     "UserRole",
 ]

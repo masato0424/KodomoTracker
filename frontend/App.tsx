@@ -19,14 +19,18 @@ import {
   RecordTimelineScreen,
   SettingsScreen,
 } from './src/screens';
-import { ensureInitialChildAndUser, syncDatabase } from './src/services';
+import {
+  apiClient,
+  ensureInitialChildAndUser,
+  syncDatabase,
+} from './src/services';
 import {
   buildAppTheme,
   ChildColorTheme,
   ThemeContext,
   ThemeMode,
 } from './src/theme';
-import { RecordCategory } from './src/types';
+import { RecordCategory, UserRole } from './src/types';
 
 type MainTab = 'timeline' | 'analytics' | 'settings';
 
@@ -55,6 +59,9 @@ export default function App(): React.JSX.Element {
   const [activeUserThemeMode, setActiveUserThemeMode] = useState<ThemeMode>(
     ThemeMode.LIGHT
   );
+  const [activeUserRole, setActiveUserRole] = useState<UserRole>(
+    UserRole.ADMIN
+  );
   const [initError, setInitError] = useState<string | null>(null);
   const [isFormVisible, setIsFormVisible] = useState<boolean>(false);
   const [defaultCategory, setDefaultCategory] = useState<
@@ -77,6 +84,8 @@ export default function App(): React.JSX.Element {
         setActiveChildColorTheme(child.resolvedColorTheme);
         setActiveUserName(user.name);
         setActiveUserThemeMode(user.resolvedThemeMode);
+        setActiveUserRole(user.role);
+        apiClient.setActiveActor(user.id, user.role);
 
         // 起動時にバックグラウンドで FastAPI との同期を試行（オフラインでもエラーにしない）
         void syncDatabase({ childId: child.id });
@@ -112,7 +121,7 @@ export default function App(): React.JSX.Element {
     return () => subscription.unsubscribe();
   }, [activeChildId]);
 
-  // 表示中のユーザーのライト／ダークモード変更をリアルタイム監視
+  // 表示中のユーザーのライト／ダークモードおよび権限ロール変更をリアルタイム監視
   useEffect(() => {
     if (!activeUserId) return;
     const subscription = collections.users
@@ -121,6 +130,8 @@ export default function App(): React.JSX.Element {
         next: (user) => {
           setActiveUserName(user.name);
           setActiveUserThemeMode(user.resolvedThemeMode);
+          setActiveUserRole(user.role);
+          apiClient.setActiveActor(user.id, user.role);
         },
         error: () => {
           // 削除時などの一時的な未検出は無視
@@ -147,12 +158,18 @@ export default function App(): React.JSX.Element {
   };
 
   const handleOpenCreateModal = (category?: RecordCategory) => {
+    if (activeUserRole === UserRole.VIEWER) {
+      return;
+    }
     setEditingRecord(null);
     setDefaultCategory(category);
     setIsFormVisible(true);
   };
 
   const handleOpenEditModal = (record: RecordModel) => {
+    if (activeUserRole === UserRole.VIEWER) {
+      return;
+    }
     setEditingRecord(record);
     setDefaultCategory(record.category);
     setIsFormVisible(true);
@@ -343,61 +360,70 @@ export default function App(): React.JSX.Element {
                 )}
               </View>
 
-              {/* ハンバーガーアイコン押下時のドロップダウンメニュー (狭幅時のみ) */}
+              {/* ハンバーガーアイコン押下時のドロップダウンメニュー + 外側タップで閉じるオーバーレイ (狭幅時のみ) */}
               {isCompactHeader && isHamburgerOpen ? (
-                <View
-                  style={[
-                    styles.hamburgerDropdown,
-                    {
-                      backgroundColor: appTheme.bgHeader,
-                      borderBottomColor: appTheme.borderStrong,
-                    },
-                  ]}
-                >
-                  {NAV_ITEMS.map((item) => {
-                    const isActive = activeTab === item.key;
-                    return (
-                      <TouchableOpacity
-                        key={item.key}
-                        style={[
-                          styles.hamburgerMenuItem,
-                          { borderBottomColor: appTheme.border },
-                          isActive && {
-                            backgroundColor: appTheme.primarySoftBg,
-                          },
-                        ]}
-                        onPress={() => handleSelectNavTab(item.key)}
-                      >
-                        <Text style={styles.hamburgerMenuIcon}>
-                          {item.icon}
-                        </Text>
-                        <Text
+                <>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel="メニューを閉じる"
+                    activeOpacity={1}
+                    style={styles.hamburgerBackdrop}
+                    onPress={() => setIsHamburgerOpen(false)}
+                  />
+                  <View
+                    style={[
+                      styles.hamburgerDropdown,
+                      {
+                        backgroundColor: appTheme.bgHeader,
+                        borderBottomColor: appTheme.borderStrong,
+                      },
+                    ]}
+                  >
+                    {NAV_ITEMS.map((item) => {
+                      const isActive = activeTab === item.key;
+                      return (
+                        <TouchableOpacity
+                          key={item.key}
                           style={[
-                            styles.hamburgerMenuLabel,
-                            {
-                              color: isActive
-                                ? appTheme.primary
-                                : appTheme.textPrimary,
+                            styles.hamburgerMenuItem,
+                            { borderBottomColor: appTheme.border },
+                            isActive && {
+                              backgroundColor: appTheme.primarySoftBg,
                             },
-                            isActive && styles.headerNavLabelActive,
                           ]}
+                          onPress={() => handleSelectNavTab(item.key)}
                         >
-                          {item.label}
-                        </Text>
-                        {isActive ? (
+                          <Text style={styles.hamburgerMenuIcon}>
+                            {item.icon}
+                          </Text>
                           <Text
                             style={[
-                              styles.hamburgerActiveMark,
-                              { color: appTheme.primary },
+                              styles.hamburgerMenuLabel,
+                              {
+                                color: isActive
+                                  ? appTheme.primary
+                                  : appTheme.textPrimary,
+                              },
+                              isActive && styles.headerNavLabelActive,
                             ]}
                           >
-                            ● 表示中
+                            {item.label}
                           </Text>
-                        ) : null}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                          {isActive ? (
+                            <Text
+                              style={[
+                                styles.hamburgerActiveMark,
+                                { color: appTheme.primary },
+                              ]}
+                            >
+                              ● 表示中
+                            </Text>
+                          ) : null}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
               ) : null}
 
               {/* メインコンテンツ領域 */}
@@ -405,6 +431,7 @@ export default function App(): React.JSX.Element {
                 {activeTab === 'timeline' ? (
                   <RecordTimelineScreen
                     childId={activeChildId}
+                    activeUserRole={activeUserRole}
                     onOpenCreateModal={handleOpenCreateModal}
                     onEditRecord={handleOpenEditModal}
                   />
@@ -414,6 +441,7 @@ export default function App(): React.JSX.Element {
                   <AnalyticsScreen
                     childId={activeChildId}
                     activeUserId={activeUserId}
+                    activeUserRole={activeUserRole}
                     onOpenCreateModal={handleOpenCreateModal}
                     onEditRecord={handleOpenEditModal}
                   />
@@ -423,6 +451,7 @@ export default function App(): React.JSX.Element {
                   <SettingsScreen
                     activeChildId={activeChildId}
                     activeUserId={activeUserId}
+                    activeUserRole={activeUserRole}
                     onSelectChild={setActiveChildId}
                     onSelectUser={setActiveUserId}
                   />
@@ -529,12 +558,23 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   hamburgerButton: {
-    width: 40,
-    height: 38,
+    width: 44,
+    height: 44,
+    minWidth: 44,
+    minHeight: 44,
     borderRadius: 10,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  hamburgerBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 18,
+    backgroundColor: 'rgba(15, 23, 42, 0.15)',
   },
   hamburgerIconBox: {
     width: 18,

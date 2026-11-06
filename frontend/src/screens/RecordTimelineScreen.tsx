@@ -17,7 +17,7 @@ import {
   collections,
   Record as RecordModel,
 } from '../db';
-import { RecordCategory } from '../types';
+import { RecordCategory, UserRole } from '../types';
 import { deleteRecordOffline, syncDatabase } from '../services';
 import { CategoryFilterBar, RecordTimelineItem } from '../components';
 import { useAppTheme } from '../theme';
@@ -26,6 +26,7 @@ export interface RecordTimelineListExternalProps {
   childId: string;
   selectedCategory: RecordCategory | null;
   onSelectRecord?: (record: RecordModel) => void;
+  canWrite?: boolean;
   refreshing: boolean;
   onRefresh: () => void;
 }
@@ -42,6 +43,7 @@ const RawRecordTimelineList: React.FC<RecordTimelineListInjectedProps> = ({
   records,
   recentCameraEvents,
   onSelectRecord,
+  canWrite = true,
   refreshing,
   onRefresh,
 }) => {
@@ -115,8 +117,8 @@ const RawRecordTimelineList: React.FC<RecordTimelineListInjectedProps> = ({
       renderItem={({ item }) => (
         <RecordTimelineItem
           record={item}
-          onPress={onSelectRecord}
-          onDelete={handleDelete}
+          onPress={canWrite ? onSelectRecord : undefined}
+          onDelete={canWrite ? handleDelete : undefined}
         />
       )}
       ListEmptyComponent={
@@ -126,7 +128,9 @@ const RawRecordTimelineList: React.FC<RecordTimelineListInjectedProps> = ({
             まだ記録がありません
           </Text>
           <Text style={[styles.emptySubtitle, { color: theme.textMuted }]}>
-            右下の「＋ 記録を追加」ボタンからオフラインでも即座に記録できます。
+            {canWrite
+              ? '右下の「＋ 記録を追加」ボタンからオフラインでも即座に記録できます。'
+              : '閲覧専用ロール (viewer) のため、記録の閲覧のみ可能です。'}
           </Text>
         </View>
       }
@@ -173,16 +177,19 @@ const ObservedRecordTimelineList = withObservables(
 
 export interface RecordTimelineScreenProps {
   childId: string;
+  activeUserRole?: UserRole;
   onOpenCreateModal: (defaultCategory?: RecordCategory) => void;
   onEditRecord?: (record: RecordModel) => void;
 }
 
 export const RecordTimelineScreen: React.FC<RecordTimelineScreenProps> = ({
   childId,
+  activeUserRole,
   onOpenCreateModal,
   onEditRecord,
 }) => {
   const theme = useAppTheme();
+  const canWrite = activeUserRole !== UserRole.VIEWER;
   const [selectedCategory, setSelectedCategory] =
     useState<RecordCategory | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -228,7 +235,9 @@ export const RecordTimelineScreen: React.FC<RecordTimelineScreenProps> = ({
               ? syncErrorMessage
               : lastSyncedAt
                 ? `最終同期: ${lastSyncedAt.toLocaleTimeString()}`
-                : 'オフラインファースト・ローカルDB稼働中（カードをタップして編集）'}
+                : canWrite
+                  ? 'オフラインファースト・ローカルDB稼働中（カードをタップして編集）'
+                  : '🔒 閲覧専用モード (Viewer) - 記録の作成・編集・削除は制限されています'}
           </Text>
         </View>
 
@@ -258,19 +267,22 @@ export const RecordTimelineScreen: React.FC<RecordTimelineScreenProps> = ({
       <ObservedRecordTimelineList
         childId={childId}
         selectedCategory={selectedCategory}
-        onSelectRecord={onEditRecord}
+        onSelectRecord={canWrite ? onEditRecord : undefined}
+        canWrite={canWrite}
         refreshing={isSyncing}
         onRefresh={handleSync}
       />
 
-      {/* フローティング新規記録ボタン */}
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: theme.primaryButtonBg }]}
-        activeOpacity={0.85}
-        onPress={() => onOpenCreateModal(selectedCategory ?? undefined)}
-      >
-        <Text style={styles.fabText}>＋ 記録を追加</Text>
-      </TouchableOpacity>
+      {/* フローティング新規記録ボタン（viewer ロール時は非表示） */}
+      {canWrite ? (
+        <TouchableOpacity
+          style={[styles.fab, { backgroundColor: theme.primaryButtonBg }]}
+          activeOpacity={0.85}
+          onPress={() => onOpenCreateModal(selectedCategory ?? undefined)}
+        >
+          <Text style={styles.fabText}>＋ 記録を追加</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 };

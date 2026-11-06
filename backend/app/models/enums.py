@@ -20,12 +20,30 @@ class UserRole(StrEnum):
     VIEWER = "viewer"
 
 
+class ThemeMode(StrEnum):
+    """UI color mode per user account."""
+
+    LIGHT = "light"
+    DARK = "dark"
+
+
 class Gender(StrEnum):
     """Child's gender (used for growth curve statistics, etc.)."""
 
     MALE = "male"
     FEMALE = "female"
     UNSPECIFIED = "unspecified"
+
+
+class ChildColorTheme(StrEnum):
+    """Personalized UI accent color theme per child (6 colors)."""
+
+    BLUE = "blue"
+    PINK = "pink"
+    EMERALD = "emerald"
+    ORANGE = "orange"
+    PURPLE = "purple"
+    TEAL = "teal"
 
 
 class RecordCategory(StrEnum):
@@ -46,16 +64,18 @@ class RecordCategory(StrEnum):
 
 
 class FrequencyType(StrEnum):
-    """Medication intake timing/frequency type."""
+    """Medication intake timing/frequency type (PRD 6.4)."""
 
-    AFTER_MEAL = "after_meal"
-    INTERVAL_HOURS = "interval_hours"
-    SPECIFIC_TIME = "specific_time"
+    AFTERMEAL = "aftermeal"
+    INTERVALHOURS = "intervalhours"
+    SPECIFICTIME = "specifictime"
 
 
 class CameraEventType(StrEnum):
-    """Event type detected by edge AI smart cameras."""
+    """Event type detected by edge AI smart cameras (PRD 6.5)."""
 
-    SLEEP_START = "sleep_start"
-    SLEEP_END = "sleep_end"
+    SLEEPSTART = "sleepstart"
+    SLEEPEND = "sleepend"
     ROLLOVER = "rollover"
+    CRAWL = "crawl"
+    STANDUP = "standup"

@@ -20,6 +20,7 @@ export default class CameraEvent extends Model {
   @field('event_type') eventType: CameraEventType;
   @field('confidence') confidence: number;
   @date('detected_at') detectedAt: Date;
+  @field('linked_record_id') linkedRecordId: string | null;
 
   @relation(TableName.CHILDREN, 'child_id') child: Relation<Child>;
 }

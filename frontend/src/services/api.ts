@@ -1,5 +1,5 @@
 /**
- * FastAPI バックエンド通信用 HTTP クライアント
+ * FastAPI バックエンド通信用 HTTP クライアント（RBAC・JWT認証ヘッダー対応）
  */
 
 declare const process: { env?: Record<string, string | undefined> } | undefined;
@@ -27,6 +27,9 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
 
 export class ApiClient {
   private baseUrl: string;
+  private activeUserId: string | null = null;
+  private activeUserRole: string | null = null;
+  private accessToken: string | null = null;
 
   constructor(baseUrl: string = DEFAULT_API_BASE_URL) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
@@ -38,6 +41,15 @@ export class ApiClient {
 
   getBaseUrl(): string {
     return this.baseUrl;
+  }
+
+  setActiveActor(userId: string | null, role: string | null): void {
+    this.activeUserId = userId;
+    this.activeUserRole = role;
+  }
+
+  setAccessToken(token: string | null): void {
+    this.accessToken = token;
   }
 
   private buildUrl(
@@ -60,12 +72,24 @@ export class ApiClient {
     const { body, params, headers, ...rest } = options;
     const url = this.buildUrl(path, params);
 
+    const authHeaders: Record<string, string> = {};
+    if (this.accessToken) {
+      authHeaders.Authorization = `Bearer ${this.accessToken}`;
+    }
+    if (this.activeUserId) {
+      authHeaders['X-User-Id'] = this.activeUserId;
+    }
+    if (this.activeUserRole) {
+      authHeaders['X-User-Role'] = this.activeUserRole;
+    }
+
     const response = await fetch(url, {
       ...rest,
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        ...(headers || {}),
+        ...authHeaders,
+        ...((headers as Record<string, string>) || {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });

@@ -39,6 +39,7 @@ import {
 export interface SettingsScreenExternalProps {
   activeChildId: string;
   activeUserId: string | null;
+  activeUserRole?: UserRole;
   onSelectChild: (childId: string) => void;
   onSelectUser: (userId: string) => void;
 }
@@ -74,12 +75,15 @@ function calculateAgeText(birthDateStr: string): string {
 const RawSettingsScreen: React.FC<SettingsScreenInjectedProps> = ({
   activeChildId,
   activeUserId,
+  activeUserRole,
   onSelectChild,
   onSelectUser,
   childrenList,
   usersList,
 }) => {
   const theme = useAppTheme();
+  const canWrite = activeUserRole !== UserRole.VIEWER;
+  const isAdmin = !activeUserRole || activeUserRole === UserRole.ADMIN;
   const [activeTab, setActiveTab] = useState<'children' | 'users'>('children');
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
 
@@ -415,28 +419,34 @@ const RawSettingsScreen: React.FC<SettingsScreenInjectedProps> = ({
               <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
                 登録されている子ども一覧
               </Text>
-              <TouchableOpacity
-                style={[
-                  styles.addPrimaryButton,
-                  isAddingChild
-                    ? {
-                        backgroundColor: theme.dangerSoftBg,
-                        borderWidth: 1,
-                        borderColor: theme.dangerBorder,
-                      }
-                    : { backgroundColor: theme.primaryButtonBg },
-                ]}
-                onPress={() => setIsAddingChild((prev) => !prev)}
-              >
-                <Text
+              {canWrite ? (
+                <TouchableOpacity
                   style={[
-                    styles.addPrimaryButtonText,
-                    isAddingChild && { color: theme.dangerText },
+                    styles.addPrimaryButton,
+                    isAddingChild
+                      ? {
+                          backgroundColor: theme.dangerSoftBg,
+                          borderWidth: 1,
+                          borderColor: theme.dangerBorder,
+                        }
+                      : { backgroundColor: theme.primaryButtonBg },
                   ]}
+                  onPress={() => setIsAddingChild((prev) => !prev)}
                 >
-                  {isAddingChild ? '✕ キャンセル' : '＋ 子どもを新規登録'}
+                  <Text
+                    style={[
+                      styles.addPrimaryButtonText,
+                      isAddingChild && { color: theme.dangerText },
+                    ]}
+                  >
+                    {isAddingChild ? '✕ キャンセル' : '＋ 子どもを新規登録'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={[styles.metaText, { color: theme.textMuted }]}>
+                  🔒 閲覧専用 (Viewer)
                 </Text>
-              </TouchableOpacity>
+              )}
             </View>
 
             {/* 子どもの新規登録フォーム */}
@@ -914,78 +924,80 @@ const RawSettingsScreen: React.FC<SettingsScreenInjectedProps> = ({
                         </Text>
                       </View>
 
-                      {/* クイックカラーテーマ選択行 */}
-                      <View
-                        style={[
-                          styles.quickSettingBox,
-                          {
-                            backgroundColor: theme.bgElevated,
-                            borderColor: theme.border,
-                          },
-                        ]}
-                      >
-                        <Text
+                      {/* クイックカラーテーマ選択行（viewer ロール時は閲覧のみ） */}
+                      {canWrite ? (
+                        <View
                           style={[
-                            styles.quickSettingLabel,
-                            { color: theme.textSecondary },
+                            styles.quickSettingBox,
+                            {
+                              backgroundColor: theme.bgElevated,
+                              borderColor: theme.border,
+                            },
                           ]}
                         >
-                          🎨 カラーテーマ:
-                        </Text>
-                        <View style={styles.optionWrap}>
-                          {CHILD_COLOR_THEME_LIST.map((palette) => {
-                            const isThemeSelected =
-                              child.resolvedColorTheme === palette.key;
-                            return (
-                              <TouchableOpacity
-                                key={palette.key}
-                                style={[
-                                  styles.colorSwatchPill,
-                                  {
-                                    backgroundColor: isThemeSelected
-                                      ? theme.isDark
-                                        ? palette.darkSoftBg
-                                        : palette.lightSoftBg
-                                      : theme.bgCard,
-                                    borderColor: isThemeSelected
-                                      ? palette.swatch
-                                      : theme.borderStrong,
-                                  },
-                                ]}
-                                onPress={() =>
-                                  handleQuickChangeChildColor(child, palette.key)
-                                }
-                              >
-                                <View
+                          <Text
+                            style={[
+                              styles.quickSettingLabel,
+                              { color: theme.textSecondary },
+                            ]}
+                          >
+                            🎨 カラーテーマ:
+                          </Text>
+                          <View style={styles.optionWrap}>
+                            {CHILD_COLOR_THEME_LIST.map((palette) => {
+                              const isThemeSelected =
+                                child.resolvedColorTheme === palette.key;
+                              return (
+                                <TouchableOpacity
+                                  key={palette.key}
                                   style={[
-                                    styles.colorDot,
-                                    { backgroundColor: palette.swatch },
-                                  ]}
-                                />
-                                <Text
-                                  style={[
-                                    styles.colorSwatchPillText,
+                                    styles.colorSwatchPill,
                                     {
-                                      color: isThemeSelected
+                                      backgroundColor: isThemeSelected
                                         ? theme.isDark
-                                          ? palette.darkAccent
-                                          : palette.lightAccent
-                                        : theme.textSecondary,
-                                      fontWeight: isThemeSelected
-                                        ? '800'
-                                        : '600',
+                                          ? palette.darkSoftBg
+                                          : palette.lightSoftBg
+                                        : theme.bgCard,
+                                      borderColor: isThemeSelected
+                                        ? palette.swatch
+                                        : theme.borderStrong,
                                     },
                                   ]}
+                                  onPress={() =>
+                                    handleQuickChangeChildColor(child, palette.key)
+                                  }
                                 >
-                                  {palette.label}
-                                </Text>
-                              </TouchableOpacity>
-                            );
-                          })}
+                                  <View
+                                    style={[
+                                      styles.colorDot,
+                                      { backgroundColor: palette.swatch },
+                                    ]}
+                                  />
+                                  <Text
+                                    style={[
+                                      styles.colorSwatchPillText,
+                                      {
+                                        color: isThemeSelected
+                                          ? theme.isDark
+                                            ? palette.darkAccent
+                                            : palette.lightAccent
+                                          : theme.textSecondary,
+                                        fontWeight: isThemeSelected
+                                          ? '800'
+                                          : '600',
+                                      },
+                                    ]}
+                                  >
+                                    {palette.label}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
                         </View>
-                      </View>
+                      ) : null}
 
-                      {isConfirmingDelete ? (
+                      {isConfirmingDelete && isAdmin ? (
                         <View
                           style={[
                             styles.deleteConfirmBox,
@@ -1044,7 +1056,7 @@ const RawSettingsScreen: React.FC<SettingsScreenInjectedProps> = ({
                             </TouchableOpacity>
                           </View>
                         </View>
-                      ) : (
+                      ) : canWrite ? (
                         <View
                           style={[
                             styles.cardFooterRow,
@@ -1070,27 +1082,29 @@ const RawSettingsScreen: React.FC<SettingsScreenInjectedProps> = ({
                               ✏️ 編集
                             </Text>
                           </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[
-                              styles.deleteOutlineButton,
-                              {
-                                backgroundColor: theme.dangerSoftBg,
-                                borderColor: theme.dangerBorder,
-                              },
-                            ]}
-                            onPress={() => setConfirmDeleteChildId(child.id)}
-                          >
-                            <Text
+                          {isAdmin ? (
+                            <TouchableOpacity
                               style={[
-                                styles.deleteOutlineButtonText,
-                                { color: theme.dangerText },
+                                styles.deleteOutlineButton,
+                                {
+                                  backgroundColor: theme.dangerSoftBg,
+                                  borderColor: theme.dangerBorder,
+                                },
                               ]}
+                              onPress={() => setConfirmDeleteChildId(child.id)}
                             >
-                              🗑️ 削除
-                            </Text>
-                          </TouchableOpacity>
+                              <Text
+                                style={[
+                                  styles.deleteOutlineButtonText,
+                                  { color: theme.dangerText },
+                                ]}
+                              >
+                                🗑️ 削除
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
                         </View>
-                      )}
+                      ) : null}
                     </>
                   )}
                 </View>
@@ -1103,28 +1117,34 @@ const RawSettingsScreen: React.FC<SettingsScreenInjectedProps> = ({
               <Text style={[styles.sectionTitle, { color: theme.textPrimary }]}>
                 ユーザー（家族・関係者）情報
               </Text>
-              <TouchableOpacity
-                style={[
-                  styles.addPrimaryButton,
-                  isAddingUser
-                    ? {
-                        backgroundColor: theme.dangerSoftBg,
-                        borderWidth: 1,
-                        borderColor: theme.dangerBorder,
-                      }
-                    : { backgroundColor: theme.primaryButtonBg },
-                ]}
-                onPress={() => setIsAddingUser((prev) => !prev)}
-              >
-                <Text
+              {canWrite ? (
+                <TouchableOpacity
                   style={[
-                    styles.addPrimaryButtonText,
-                    isAddingUser && { color: theme.dangerText },
+                    styles.addPrimaryButton,
+                    isAddingUser
+                      ? {
+                          backgroundColor: theme.dangerSoftBg,
+                          borderWidth: 1,
+                          borderColor: theme.dangerBorder,
+                        }
+                      : { backgroundColor: theme.primaryButtonBg },
                   ]}
+                  onPress={() => setIsAddingUser((prev) => !prev)}
                 >
-                  {isAddingUser ? '✕ キャンセル' : '＋ 家族・記録者を追加'}
+                  <Text
+                    style={[
+                      styles.addPrimaryButtonText,
+                      isAddingUser && { color: theme.dangerText },
+                    ]}
+                  >
+                    {isAddingUser ? '✕ キャンセル' : '＋ 家族・記録者を追加'}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={[styles.metaText, { color: theme.textMuted }]}>
+                  🔒 閲覧専用 (Viewer)
                 </Text>
-              </TouchableOpacity>
+              )}
             </View>
 
             {/* ユーザー新規登録フォーム */}
@@ -1661,53 +1681,55 @@ const RawSettingsScreen: React.FC<SettingsScreenInjectedProps> = ({
                         </View>
                       </View>
 
-                      <View
-                        style={[
-                          styles.cardFooterRow,
-                          { borderTopColor: theme.border },
-                        ]}
-                      >
-                        <TouchableOpacity
+                      {canWrite ? (
+                        <View
                           style={[
-                            styles.editOutlineButton,
-                            {
-                              backgroundColor: theme.bgElevated,
-                              borderColor: theme.borderStrong,
-                            },
+                            styles.cardFooterRow,
+                            { borderTopColor: theme.border },
                           ]}
-                          onPress={() => handleStartEditUser(user)}
                         >
-                          <Text
-                            style={[
-                              styles.editOutlineButtonText,
-                              { color: theme.textPrimary },
-                            ]}
-                          >
-                            ✏️ ユーザー情報を編集
-                          </Text>
-                        </TouchableOpacity>
-                        {usersList.length > 1 ? (
                           <TouchableOpacity
                             style={[
-                              styles.deleteOutlineButton,
+                              styles.editOutlineButton,
                               {
-                                backgroundColor: theme.dangerSoftBg,
-                                borderColor: theme.dangerBorder,
+                                backgroundColor: theme.bgElevated,
+                                borderColor: theme.borderStrong,
                               },
                             ]}
-                            onPress={() => handleDeleteUser(user)}
+                            onPress={() => handleStartEditUser(user)}
                           >
                             <Text
                               style={[
-                                styles.deleteOutlineButtonText,
-                                { color: theme.dangerText },
+                                styles.editOutlineButtonText,
+                                { color: theme.textPrimary },
                               ]}
                             >
-                              🗑️ 削除
+                              ✏️ ユーザー情報を編集
                             </Text>
                           </TouchableOpacity>
-                        ) : null}
-                      </View>
+                          {isAdmin && usersList.length > 1 ? (
+                            <TouchableOpacity
+                              style={[
+                                styles.deleteOutlineButton,
+                                {
+                                  backgroundColor: theme.dangerSoftBg,
+                                  borderColor: theme.dangerBorder,
+                                },
+                              ]}
+                              onPress={() => handleDeleteUser(user)}
+                            >
+                              <Text
+                                style={[
+                                  styles.deleteOutlineButtonText,
+                                  { color: theme.dangerText },
+                                ]}
+                              >
+                                🗑️ 削除
+                              </Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      ) : null}
                     </>
                   )}
                 </View>
