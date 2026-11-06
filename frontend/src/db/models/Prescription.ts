@@ -22,6 +22,7 @@ export default class Prescription extends Model {
   @field('frequency_type') frequencyType: FrequencyType;
   @field('days') days: number;
   @field('start_date') startDate: string; // YYYY-MM-DD
+  @field('schedule_details') scheduleDetails: string | null;
 
   @relation(TableName.CHILDREN, 'child_id') child: Relation<Child>;
 

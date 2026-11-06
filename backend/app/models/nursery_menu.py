@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
-from sqlalchemy import Date
+from sqlalchemy import Date, DateTime, JSON, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+JSONBCompat = JSON().with_variant(JSONB(), "postgresql")
 
 
 class NurseryMenu(Base):
@@ -24,10 +31,29 @@ class NurseryMenu(Base):
     target_date: Mapped[date] = mapped_column(
         Date,
         nullable=False,
+        unique=True,
         index=True,
     )
     menu_details: Mapped[dict[str, Any]] = mapped_column(
-        JSONB,
+        JSONBCompat,
         nullable=False,
         default=dict,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utc_now,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utc_now,
+        onupdate=_utc_now,
+        server_default=func.now(),
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
     )

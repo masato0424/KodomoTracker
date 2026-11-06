@@ -16,6 +16,7 @@ import {
   GENDER_LABELS,
   RECORD_CATEGORY_CONFIGS,
   RecordCategory,
+  UserRole,
 } from '../types';
 import { seedSampleAnalyticsRecords } from '../services';
 import { useAppTheme } from '../theme';
@@ -33,7 +34,34 @@ export type GrowthMetricCategory =
   | typeof RecordCategory.CHEST_CIRCUMFERENCE
   | typeof RecordCategory.FOOT_SIZE;
 
-const GROWTH_METRICS: Array<{
+/** 要件定義 FR-05 準拠: 月齢換算除数 30.4375 日 */
+export const AGE_MONTH_DIVISOR_DAYS = 30.4375;
+export const AGE_MONTH_DIVISOR_MS = AGE_MONTH_DIVISOR_DAYS * 24 * 60 * 60 * 1000;
+
+export function calculateAgeInMonths(birthDate: Date, targetDate: Date): number {
+  const birthMs = birthDate.getTime();
+  const targetMs = targetDate.getTime();
+  if (Number.isNaN(birthMs) || Number.isNaN(targetMs)) {
+    return 0;
+  }
+  return Math.max(0, (targetMs - birthMs) / AGE_MONTH_DIVISOR_MS);
+}
+
+export function formatMinutesToHoursMinutes(totalMinutes: number): string {
+  const rounded = Math.max(0, Math.round(totalMinutes));
+  const hours = Math.floor(rounded / 60);
+  const mins = rounded % 60;
+  return `${hours}時間${mins}分`;
+}
+
+export interface PercentilePoint {
+  month: number;
+  p3: number;
+  p50: number;
+  p97: number;
+}
+
+export interface GrowthMetricConfig {
   category: GrowthMetricCategory;
   label: string;
   icon: string;
@@ -41,9 +69,155 @@ const GROWTH_METRICS: Array<{
   color: string;
   minY: number;
   maxY: number;
-  /** 月齢(0, 3, 6, 9, 12ヶ月)に対する標準下限・上限目安 */
-  refBand: Array<{ month: number; low: number; high: number }>;
-}> = [
+  /** 性別ごとのパーセンタイル基準点 (0ヶ月〜216ヶ月: 学童期・思春期まで対応) */
+  percentilesByGender: {
+    male: PercentilePoint[];
+    female: PercentilePoint[];
+    unspecified: PercentilePoint[];
+  };
+}
+
+function buildAveragedPercentiles(
+  male: PercentilePoint[],
+  female: PercentilePoint[]
+): PercentilePoint[] {
+  return male.map((m, idx) => {
+    const f = female[idx] ?? m;
+    return {
+      month: m.month,
+      p3: Number(((m.p3 + f.p3) / 2).toFixed(2)),
+      p50: Number(((m.p50 + f.p50) / 2).toFixed(2)),
+      p97: Number(((m.p97 + f.p97) / 2).toFixed(2)),
+    };
+  });
+}
+
+const HEIGHT_MALE: PercentilePoint[] = [
+  { month: 0, p3: 46.3, p50: 49.9, p97: 53.4 },
+  { month: 3, p3: 57.6, p50: 61.4, p97: 65.3 },
+  { month: 6, p3: 63.6, p50: 67.6, p97: 71.6 },
+  { month: 9, p3: 67.7, p50: 72.0, p97: 76.2 },
+  { month: 12, p3: 71.0, p50: 75.7, p97: 80.5 },
+  { month: 24, p3: 81.7, p50: 87.8, p97: 93.9 },
+  { month: 36, p3: 88.7, p50: 96.1, p97: 103.5 },
+  { month: 60, p3: 100.7, p50: 110.0, p97: 119.2 },
+  { month: 120, p3: 127.0, p50: 138.6, p97: 150.5 },
+  { month: 216, p3: 159.5, p50: 170.8, p97: 182.2 },
+];
+const HEIGHT_FEMALE: PercentilePoint[] = [
+  { month: 0, p3: 45.6, p50: 49.1, p97: 52.7 },
+  { month: 3, p3: 55.8, p50: 59.8, p97: 63.8 },
+  { month: 6, p3: 61.5, p50: 65.7, p97: 70.0 },
+  { month: 9, p3: 65.6, p50: 70.1, p97: 74.7 },
+  { month: 12, p3: 69.2, p50: 74.0, p97: 78.9 },
+  { month: 24, p3: 80.0, p50: 86.4, p97: 92.9 },
+  { month: 36, p3: 87.4, p50: 95.1, p97: 102.7 },
+  { month: 60, p3: 99.9, p50: 109.4, p97: 118.9 },
+  { month: 120, p3: 126.8, p50: 138.4, p97: 150.2 },
+  { month: 216, p3: 148.2, p50: 158.1, p97: 168.0 },
+];
+
+const WEIGHT_MALE: PercentilePoint[] = [
+  { month: 0, p3: 2.5, p50: 3.3, p97: 4.3 },
+  { month: 3, p3: 5.1, p50: 6.4, p97: 7.9 },
+  { month: 6, p3: 6.4, p50: 7.9, p97: 9.7 },
+  { month: 9, p3: 7.2, p50: 8.9, p97: 10.9 },
+  { month: 12, p3: 7.8, p50: 9.6, p97: 11.8 },
+  { month: 24, p3: 9.7, p50: 12.2, p97: 15.3 },
+  { month: 36, p3: 11.3, p50: 14.3, p97: 18.3 },
+  { month: 60, p3: 14.1, p50: 18.3, p97: 24.2 },
+  { month: 120, p3: 24.0, p50: 33.0, p97: 46.5 },
+  { month: 216, p3: 48.0, p50: 62.5, p97: 82.0 },
+];
+const WEIGHT_FEMALE: PercentilePoint[] = [
+  { month: 0, p3: 2.4, p50: 3.2, p97: 4.2 },
+  { month: 3, p3: 4.6, p50: 5.8, p97: 7.4 },
+  { month: 6, p3: 5.8, p50: 7.3, p97: 9.2 },
+  { month: 9, p3: 6.6, p50: 8.2, p97: 10.4 },
+  { month: 12, p3: 7.1, p50: 8.9, p97: 11.3 },
+  { month: 24, p3: 9.0, p50: 11.5, p97: 14.8 },
+  { month: 36, p3: 10.8, p50: 13.9, p97: 18.1 },
+  { month: 60, p3: 13.7, p50: 18.2, p97: 24.9 },
+  { month: 120, p3: 23.5, p50: 32.8, p97: 46.0 },
+  { month: 216, p3: 42.0, p50: 52.5, p97: 67.0 },
+];
+
+const HEAD_MALE: PercentilePoint[] = [
+  { month: 0, p3: 31.9, p50: 34.5, p97: 37.0 },
+  { month: 3, p3: 38.1, p50: 40.5, p97: 42.9 },
+  { month: 6, p3: 40.9, p50: 43.3, p97: 45.8 },
+  { month: 9, p3: 42.6, p50: 45.0, p97: 47.5 },
+  { month: 12, p3: 43.6, p50: 46.1, p97: 48.6 },
+  { month: 24, p3: 45.5, p50: 48.3, p97: 51.0 },
+  { month: 36, p3: 46.6, p50: 49.5, p97: 52.3 },
+  { month: 60, p3: 47.8, p50: 50.8, p97: 53.8 },
+  { month: 120, p3: 49.8, p50: 53.0, p97: 56.2 },
+  { month: 216, p3: 52.5, p50: 56.0, p97: 59.5 },
+];
+const HEAD_FEMALE: PercentilePoint[] = [
+  { month: 0, p3: 31.5, p50: 33.9, p97: 36.2 },
+  { month: 3, p3: 37.1, p50: 39.5, p97: 41.9 },
+  { month: 6, p3: 39.8, p50: 42.2, p97: 44.6 },
+  { month: 9, p3: 41.5, p50: 43.8, p97: 46.3 },
+  { month: 12, p3: 42.5, p50: 44.9, p97: 47.4 },
+  { month: 24, p3: 44.4, p50: 47.2, p97: 50.0 },
+  { month: 36, p3: 45.6, p50: 48.5, p97: 51.3 },
+  { month: 60, p3: 46.9, p50: 49.9, p97: 52.9 },
+  { month: 120, p3: 49.0, p50: 52.2, p97: 55.4 },
+  { month: 216, p3: 51.5, p50: 54.8, p97: 58.0 },
+];
+
+const CHEST_MALE: PercentilePoint[] = [
+  { month: 0, p3: 30.5, p50: 33.0, p97: 35.6 },
+  { month: 3, p3: 38.2, p50: 41.2, p97: 44.2 },
+  { month: 6, p3: 41.0, p50: 44.2, p97: 47.5 },
+  { month: 9, p3: 42.8, p50: 46.0, p97: 49.3 },
+  { month: 12, p3: 44.0, p50: 47.2, p97: 50.6 },
+  { month: 24, p3: 46.5, p50: 50.0, p97: 53.8 },
+  { month: 36, p3: 48.2, p50: 52.0, p97: 56.2 },
+  { month: 60, p3: 51.0, p50: 55.5, p97: 60.8 },
+  { month: 120, p3: 58.0, p50: 65.0, p97: 74.0 },
+  { month: 216, p3: 74.0, p50: 84.0, p97: 96.0 },
+];
+const CHEST_FEMALE: PercentilePoint[] = [
+  { month: 0, p3: 30.0, p50: 32.5, p97: 35.0 },
+  { month: 3, p3: 37.2, p50: 40.1, p97: 43.2 },
+  { month: 6, p3: 39.8, p50: 43.0, p97: 46.2 },
+  { month: 9, p3: 41.6, p50: 44.8, p97: 48.1 },
+  { month: 12, p3: 42.8, p50: 46.0, p97: 49.4 },
+  { month: 24, p3: 45.3, p50: 48.8, p97: 52.6 },
+  { month: 36, p3: 47.0, p50: 50.8, p97: 55.0 },
+  { month: 60, p3: 49.8, p50: 54.3, p97: 59.5 },
+  { month: 120, p3: 57.0, p50: 64.0, p97: 73.0 },
+  { month: 216, p3: 70.0, p50: 79.0, p97: 90.0 },
+];
+
+const FOOT_MALE: PercentilePoint[] = [
+  { month: 0, p3: 7.2, p50: 8.2, p97: 9.2 },
+  { month: 3, p3: 8.4, p50: 9.4, p97: 10.5 },
+  { month: 6, p3: 9.5, p50: 10.6, p97: 11.7 },
+  { month: 9, p3: 10.5, p50: 11.6, p97: 12.7 },
+  { month: 12, p3: 11.4, p50: 12.5, p97: 13.6 },
+  { month: 24, p3: 13.0, p50: 14.3, p97: 15.6 },
+  { month: 36, p3: 14.2, p50: 15.6, p97: 17.0 },
+  { month: 60, p3: 16.2, p50: 17.8, p97: 19.5 },
+  { month: 120, p3: 20.5, p50: 22.5, p97: 24.5 },
+  { month: 216, p3: 24.0, p50: 26.5, p97: 29.0 },
+];
+const FOOT_FEMALE: PercentilePoint[] = [
+  { month: 0, p3: 7.0, p50: 8.0, p97: 9.0 },
+  { month: 3, p3: 8.1, p50: 9.1, p97: 10.2 },
+  { month: 6, p3: 9.2, p50: 10.3, p97: 11.4 },
+  { month: 9, p3: 10.2, p50: 11.3, p97: 12.4 },
+  { month: 12, p3: 11.0, p50: 12.1, p97: 13.2 },
+  { month: 24, p3: 12.6, p50: 13.9, p97: 15.2 },
+  { month: 36, p3: 13.8, p50: 15.2, p97: 16.6 },
+  { month: 60, p3: 15.8, p50: 17.4, p97: 19.0 },
+  { month: 120, p3: 20.0, p50: 22.0, p97: 24.0 },
+  { month: 216, p3: 22.0, p50: 24.0, p97: 26.0 },
+];
+
+export const GROWTH_METRICS: GrowthMetricConfig[] = [
   {
     category: RecordCategory.HEIGHT,
     label: '身長',
@@ -52,13 +226,11 @@ const GROWTH_METRICS: Array<{
     color: '#10B981',
     minY: 45,
     maxY: 85,
-    refBand: [
-      { month: 0, low: 46.0, high: 52.5 },
-      { month: 3, low: 57.0, high: 64.5 },
-      { month: 6, low: 63.0, high: 71.0 },
-      { month: 9, low: 67.0, high: 75.5 },
-      { month: 12, low: 70.5, high: 79.5 },
-    ],
+    percentilesByGender: {
+      male: HEIGHT_MALE,
+      female: HEIGHT_FEMALE,
+      unspecified: buildAveragedPercentiles(HEIGHT_MALE, HEIGHT_FEMALE),
+    },
   },
   {
     category: RecordCategory.WEIGHT,
@@ -68,13 +240,11 @@ const GROWTH_METRICS: Array<{
     color: '#3B82F6',
     minY: 2,
     maxY: 13,
-    refBand: [
-      { month: 0, low: 2.4, high: 3.9 },
-      { month: 3, low: 5.0, high: 7.5 },
-      { month: 6, low: 6.4, high: 9.3 },
-      { month: 9, low: 7.2, high: 10.4 },
-      { month: 12, low: 7.8, high: 11.2 },
-    ],
+    percentilesByGender: {
+      male: WEIGHT_MALE,
+      female: WEIGHT_FEMALE,
+      unspecified: buildAveragedPercentiles(WEIGHT_MALE, WEIGHT_FEMALE),
+    },
   },
   {
     category: RecordCategory.HEAD_CIRCUMFERENCE,
@@ -84,13 +254,11 @@ const GROWTH_METRICS: Array<{
     color: '#14B8A6',
     minY: 30,
     maxY: 50,
-    refBand: [
-      { month: 0, low: 31.5, high: 35.5 },
-      { month: 3, low: 38.0, high: 42.0 },
-      { month: 6, low: 41.0, high: 45.5 },
-      { month: 9, low: 42.8, high: 47.2 },
-      { month: 12, low: 44.0, high: 48.5 },
-    ],
+    percentilesByGender: {
+      male: HEAD_MALE,
+      female: HEAD_FEMALE,
+      unspecified: buildAveragedPercentiles(HEAD_MALE, HEAD_FEMALE),
+    },
   },
   {
     category: RecordCategory.CHEST_CIRCUMFERENCE,
@@ -100,13 +268,11 @@ const GROWTH_METRICS: Array<{
     color: '#8B5CF6',
     minY: 30,
     maxY: 52,
-    refBand: [
-      { month: 0, low: 30.5, high: 35.0 },
-      { month: 3, low: 38.0, high: 43.5 },
-      { month: 6, low: 41.0, high: 46.8 },
-      { month: 9, low: 43.0, high: 48.8 },
-      { month: 12, low: 44.2, high: 50.0 },
-    ],
+    percentilesByGender: {
+      male: CHEST_MALE,
+      female: CHEST_FEMALE,
+      unspecified: buildAveragedPercentiles(CHEST_MALE, CHEST_FEMALE),
+    },
   },
   {
     category: RecordCategory.FOOT_SIZE,
@@ -116,15 +282,43 @@ const GROWTH_METRICS: Array<{
     color: '#D97706',
     minY: 6,
     maxY: 16,
-    refBand: [
-      { month: 0, low: 7.5, high: 9.0 },
-      { month: 3, low: 8.5, high: 10.2 },
-      { month: 6, low: 9.5, high: 11.5 },
-      { month: 9, low: 10.5, high: 12.5 },
-      { month: 12, low: 11.5, high: 13.5 },
-    ],
+    percentilesByGender: {
+      male: FOOT_MALE,
+      female: FOOT_FEMALE,
+      unspecified: buildAveragedPercentiles(FOOT_MALE, FOOT_FEMALE),
+    },
   },
 ];
+
+export function interpolatePercentileAtMonth(
+  curve: PercentilePoint[],
+  targetMonth: number
+): { p3: number; p50: number; p97: number } {
+  if (curve.length === 0) {
+    return { p3: 0, p50: 0, p97: 0 };
+  }
+  if (targetMonth <= curve[0].month) {
+    return { p3: curve[0].p3, p50: curve[0].p50, p97: curve[0].p97 };
+  }
+  const last = curve[curve.length - 1];
+  if (targetMonth >= last.month) {
+    return { p3: last.p3, p50: last.p50, p97: last.p97 };
+  }
+  for (let i = 0; i < curve.length - 1; i++) {
+    const a = curve[i];
+    const b = curve[i + 1];
+    if (targetMonth >= a.month && targetMonth <= b.month) {
+      const span = b.month - a.month;
+      const ratio = span > 0 ? (targetMonth - a.month) / span : 0;
+      return {
+        p3: a.p3 + (b.p3 - a.p3) * ratio,
+        p50: a.p50 + (b.p50 - a.p50) * ratio,
+        p97: a.p97 + (b.p97 - a.p97) * ratio,
+      };
+    }
+  }
+  return { p3: last.p3, p50: last.p50, p97: last.p97 };
+}
 
 const WEEKDAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -151,6 +345,7 @@ export interface RawDayTimelineEvent {
   record: RecordModel;
   category: RecordCategory;
   minutesOfDay: number;
+  endMinutesOfDay?: number | null;
   timeStr: string;
   icon: string;
   color: string;
@@ -166,20 +361,23 @@ export interface RawDayTimelineEvent {
  */
 export interface PositionedDayTimelineEvent extends RawDayTimelineEvent {
   topPct: number;
+  heightPct: number;
   leftPct: number;
   widthPct: number;
   colIndex: number;
   totalCols: number;
+  effectiveStartMin: number;
+  effectiveEndMin: number;
 }
 
 /**
  * Microsoft Outlook 予定表アルゴリズムに基づく1日内イベントの重なり回避レイアウト関数
  *
- * - 24時間トラック (高さ 360px = 1440分) 上でのイベントバッジの視覚的占有高さ (約90分相当) を考慮し、
- *   時間帯が近接・重複するイベント群を「衝突クラスタ (collision cluster)」としてグループ化する。
+ * - 要件定義 FR-05 に従い、各イベントを `[start_min, max(end_min, start_min + 30)]` の時間区間（最小占有枠 30分）として扱い、
+ *   区間が重なるイベント群を「衝突クラスタ (collision cluster)」としてグループ化する。
  * - クラスタ内の各イベントに対し、左から順に空いている列 (column) を貪欲法で割り当て、
- *   横幅 (`100 / totalCols %`) と水平位置 (`colIndex / totalCols * 100 %`) を算出することで
- *   食事と排泄のタイミングが近い場合でも絶対に重ならないよう横並びに配置する。
+ *   横幅 (`100 / totalCols %`) と水平位置 (`colIndex / totalCols * 100 %`)、
+ *   および縦方向の占有高さ (`heightPct`) を算出する。
  */
 export function layoutDayTimelineEvents(
   rawEvents: RawDayTimelineEvent[]
@@ -188,10 +386,10 @@ export function layoutDayTimelineEvents(
     return [];
   }
 
-  // 360px トラックにおけるバッジ1個分の視覚的占有時間（約22px = 88分）
-  const VISUAL_SLOT_MINUTES = 90;
-  const MIN_START_MINUTES = 8;
-  const MAX_START_MINUTES = 1440 - 84;
+  // 要件定義 FR-05 準拠: 単発イベントの最小占有枠 30分
+  const MIN_SLOT_MINUTES = 30;
+  const MIN_START_MINUTES = 0;
+  const MAX_START_MINUTES = 1440 - MIN_SLOT_MINUTES;
 
   const isMealCategory = (cat: RecordCategory): boolean =>
     cat === RecordCategory.MILK ||
@@ -205,10 +403,18 @@ export function layoutDayTimelineEvents(
         MAX_START_MINUTES,
         Math.max(MIN_START_MINUTES, ev.minutesOfDay)
       );
+      const rawEndMin =
+        ev.endMinutesOfDay !== undefined && ev.endMinutesOfDay !== null
+          ? ev.endMinutesOfDay
+          : effectiveStartMin + MIN_SLOT_MINUTES;
+      const effectiveEndMin = Math.min(
+        1440,
+        Math.max(effectiveStartMin + MIN_SLOT_MINUTES, rawEndMin)
+      );
       return {
         ...ev,
         effectiveStartMin,
-        effectiveEndMin: effectiveStartMin + VISUAL_SLOT_MINUTES,
+        effectiveEndMin,
       };
     })
     .sort((a, b) => {
@@ -224,7 +430,7 @@ export function layoutDayTimelineEvents(
       return a.id.localeCompare(b.id);
     });
 
-  // 1. 互いに視覚領域が重なる連結クラスタへ分割
+  // 1. 互いに領域が重なる連結クラスタへ分割
   type PreparedEvent = (typeof prepared)[number];
   const clusters: PreparedEvent[][] = [];
   let currentCluster: PreparedEvent[] = [];
@@ -290,13 +496,21 @@ export function layoutDayTimelineEvents(
         colSpan += 1;
       }
 
+      const durationMinutes = Math.max(
+        MIN_SLOT_MINUTES,
+        ev.effectiveEndMin - ev.effectiveStartMin
+      );
+
       positioned.push({
         ...ev,
         topPct: (ev.effectiveStartMin / 1440) * 100,
+        heightPct: (durationMinutes / 1440) * 100,
         leftPct: (ev.colIndex / totalCols) * 100,
         widthPct: (colSpan / totalCols) * 100,
         colIndex: ev.colIndex,
         totalCols,
+        effectiveStartMin: ev.effectiveStartMin,
+        effectiveEndMin: ev.effectiveEndMin,
       });
     }
   }
@@ -326,7 +540,7 @@ interface PolylineChartProps {
   height?: number;
   referenceLineValue?: number;
   referenceLineLabel?: string;
-  bandPoints?: Array<{ xRatio: number; low: number; high: number }>;
+  bandPoints?: Array<{ xRatio: number; low: number; median?: number; high: number }>;
 }
 
 const PolylineChart: React.FC<PolylineChartProps> = ({
@@ -376,6 +590,83 @@ const PolylineChart: React.FC<PolylineChartProps> = ({
   const padX = 18;
   const usableW = Math.max(plotWidth - padX * 2, 40);
 
+  // 3〜97パーセンタイル連続シェード帯（24分割ストリップ）と50パーセンタイル中央値破線
+  const continuousBandStrips = useMemo(() => {
+    if (!bandPoints || bandPoints.length === 0) return [];
+    const sorted = [...bandPoints].sort((a, b) => a.xRatio - b.xRatio);
+    const steps = 28;
+    const strips: Array<{
+      key: string;
+      left: number;
+      top: number;
+      width: number;
+      height: number;
+      medianPx: number;
+      medianPy: number | null;
+    }> = [];
+
+    const interpAt = (r: number) => {
+      if (r <= sorted[0].xRatio) return sorted[0];
+      const last = sorted[sorted.length - 1];
+      if (r >= last.xRatio) return last;
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const a = sorted[i];
+        const b = sorted[i + 1];
+        if (r >= a.xRatio && r <= b.xRatio) {
+          const span = b.xRatio - a.xRatio;
+          const t = span > 0 ? (r - a.xRatio) / span : 0;
+          return {
+            xRatio: r,
+            low: a.low + (b.low - a.low) * t,
+            median:
+              a.median !== undefined && b.median !== undefined
+                ? a.median + (b.median - a.median) * t
+                : (a.low + a.high + b.low + b.high) / 4,
+            high: a.high + (b.high - a.high) * t,
+          };
+        }
+      }
+      return last;
+    };
+
+    const stripWidth = usableW / steps + 1.5;
+    for (let s = 0; s <= steps; s++) {
+      const r = s / steps;
+      const sample = interpAt(r);
+      const highRatio = Math.max(
+        0,
+        Math.min(1, (sample.high - minY) / (maxY - minY))
+      );
+      const lowRatio = Math.max(
+        0,
+        Math.min(1, (sample.low - minY) / (maxY - minY))
+      );
+      const medianVal =
+        sample.median !== undefined
+          ? sample.median
+          : (sample.low + sample.high) / 2;
+      const medianRatio = Math.max(
+        0,
+        Math.min(1, (medianVal - minY) / (maxY - minY))
+      );
+      const topPx = padY + (1 - highRatio) * usableH;
+      const bottomPx = padY + (1 - lowRatio) * usableH;
+      const medianPy = padY + (1 - medianRatio) * usableH;
+      const bx = padX + r * usableW;
+
+      strips.push({
+        key: `strip-${s}`,
+        left: bx - stripWidth / 2,
+        top: topPx,
+        width: stripWidth,
+        height: Math.max(bottomPx - topPx, 3),
+        medianPx: bx,
+        medianPy,
+      });
+    }
+    return strips;
+  }, [bandPoints, maxY, minY, padX, padY, usableH, usableW]);
+
   const refLineTop = useMemo(() => {
     if (referenceLineValue === undefined) return null;
     const ratio = (referenceLineValue - minY) / (maxY - minY);
@@ -424,42 +715,51 @@ const PolylineChart: React.FC<PolylineChartProps> = ({
             />
           ))}
 
-          {/* 標準発育帯（パーセンタイル目安バー） */}
-          {bandPoints &&
-            bandPoints.map((b, idx) => {
-              const highRatio = Math.max(
-                0,
-                Math.min(1, (b.high - minY) / (maxY - minY))
-              );
-              const lowRatio = Math.max(
-                0,
-                Math.min(1, (b.low - minY) / (maxY - minY))
-              );
-              const topPx = padY + (1 - highRatio) * usableH;
-              const bottomPx = padY + (1 - lowRatio) * usableH;
-              const bx = padX + b.xRatio * usableW;
-              const colWidth = Math.max(usableW / (bandPoints.length + 1), 28);
-              return (
-                <View
-                  key={`band-${idx}`}
-                  style={[
-                    styles.referenceBandBar,
-                    {
-                      left: bx - colWidth / 2,
-                      top: topPx,
-                      width: colWidth,
-                      height: Math.max(bottomPx - topPx, 4),
-                      backgroundColor: theme.isDark
-                        ? `${lineColor}2E`
-                        : `${lineColor}1A`,
-                      borderColor: theme.isDark
-                        ? `${lineColor}77`
-                        : `${lineColor}40`,
-                    },
-                  ]}
-                />
-              );
-            })}
+          {/* 標準発育帯（3〜97パーセンタイル連続シェード帯） */}
+          {continuousBandStrips.map((strip) => (
+            <View
+              key={strip.key}
+              style={{
+                position: 'absolute',
+                left: strip.left,
+                top: strip.top,
+                width: strip.width,
+                height: strip.height,
+                backgroundColor: theme.isDark
+                  ? `${lineColor}26`
+                  : `${lineColor}1C`,
+              }}
+            />
+          ))}
+
+          {/* 50パーセンタイル（中央値）破線 */}
+          {continuousBandStrips.map((strip, idx) => {
+            if (idx === 0 || idx % 2 === 1) return null;
+            const prev = continuousBandStrips[idx - 1];
+            if (prev.medianPy === null || strip.medianPy === null) return null;
+            const dx = strip.medianPx - prev.medianPx;
+            const dy = strip.medianPy - prev.medianPy;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            const angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+            const cx = (prev.medianPx + strip.medianPx) / 2;
+            const cy = (prev.medianPy + strip.medianPy) / 2;
+            return (
+              <View
+                key={`p50-${strip.key}`}
+                style={{
+                  position: 'absolute',
+                  left: cx - length / 2,
+                  top: cy - 1,
+                  width: length,
+                  height: 1.5,
+                  backgroundColor: theme.isDark
+                    ? `${lineColor}AA`
+                    : `${lineColor}88`,
+                  transform: [{ rotate: `${angleDeg}deg` }],
+                }}
+              />
+            );
+          })}
 
           {/* 基準線（37.5℃発熱目安ライン等） */}
           {refLineTop !== null ? (
@@ -585,6 +885,7 @@ const PolylineChart: React.FC<PolylineChartProps> = ({
 export interface AnalyticsScreenExternalProps {
   childId: string;
   activeUserId?: string | null;
+  activeUserRole?: UserRole;
   onOpenCreateModal: (defaultCategory?: RecordCategory) => void;
   onEditRecord?: (record: RecordModel) => void;
 }
@@ -598,10 +899,12 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
   child,
   records,
   activeUserId,
+  activeUserRole,
   onOpenCreateModal,
   onEditRecord,
 }) => {
   const theme = useAppTheme();
+  const canWrite = activeUserRole !== UserRole.VIEWER;
   const [subTab, setSubTab] = useState<AnalyticsSubTab>('growth');
   const [selectedGrowthMetric, setSelectedGrowthMetric] =
     useState<GrowthMetricCategory>(RecordCategory.HEIGHT);
@@ -612,14 +915,14 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
   const [isSeeding, setIsSeeding] = useState<boolean>(false);
 
   const handleSeedSamples = useCallback(async () => {
-    if (isSeeding) return;
+    if (isSeeding || !canWrite) return;
     setIsSeeding(true);
     try {
       await seedSampleAnalyticsRecords(child.id, activeUserId);
     } finally {
       setIsSeeding(false);
     }
-  }, [activeUserId, child.id, isSeeding]);
+  }, [activeUserId, canWrite, child.id, isSeeding]);
 
   // --- 対象週の7日間配列を計算 (weekOffset = 0 の場合は今日を含む直近7日間) ---
   const weekDays = useMemo(() => {
@@ -658,6 +961,16 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
     [selectedGrowthMetric]
   );
 
+  const genderPercentileCurve = useMemo(() => {
+    if (child.gender === Gender.MALE) {
+      return activeGrowthConfig.percentilesByGender.male;
+    }
+    if (child.gender === Gender.FEMALE) {
+      return activeGrowthConfig.percentilesByGender.female;
+    }
+    return activeGrowthConfig.percentilesByGender.unspecified;
+  }, [activeGrowthConfig, child.gender]);
+
   const growthRecords = useMemo(() => {
     return records
       .filter(
@@ -669,27 +982,59 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
       .sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
   }, [records, selectedGrowthMetric]);
 
+  // 子どもの現在月齢と計測レコード最大月齢から X軸上限 (12, 24, 36, 60, 120, 216ヶ月) と Y軸レンジを動的に決定
+  const growthAxisBounds = useMemo(() => {
+    const birthDate = child.birthDateAsDate;
+    const currentAgeMonths = calculateAgeInMonths(birthDate, new Date());
+    const maxRecordMonth = growthRecords.reduce((acc, rec) => {
+      const m = calculateAgeInMonths(birthDate, rec.startTime);
+      return Math.max(acc, m);
+    }, 0);
+    const targetMax = Math.max(12, currentAgeMonths, maxRecordMonth);
+    const horizonPresets = [12, 24, 36, 60, 120, 216];
+    const maxMonth =
+      horizonPresets.find((h) => h >= targetMax) ??
+      Math.ceil(targetMax / 12) * 12;
+
+    const endPercentile = interpolatePercentileAtMonth(
+      genderPercentileCurve,
+      maxMonth
+    );
+    const startPercentile = interpolatePercentileAtMonth(
+      genderPercentileCurve,
+      0
+    );
+    const recordValues = growthRecords.map((r) => r.amount ?? 0);
+    const rawMin = Math.min(
+      activeGrowthConfig.minY,
+      startPercentile.p3,
+      ...(recordValues.length > 0 ? recordValues : [activeGrowthConfig.minY])
+    );
+    const rawMax = Math.max(
+      activeGrowthConfig.maxY,
+      endPercentile.p97,
+      ...(recordValues.length > 0 ? recordValues : [activeGrowthConfig.maxY])
+    );
+    const minY = Math.max(0, Math.floor(rawMin - 2));
+    const maxY = Math.ceil(rawMax + 2);
+    return { maxMonth, minY, maxY };
+  }, [activeGrowthConfig, child.birthDateAsDate, genderPercentileCurve, growthRecords]);
+
   const growthChartPoints = useMemo<LinePoint[]>(() => {
     if (growthRecords.length === 0) return [];
-    const birthMs = child.birthDateAsDate.getTime();
-    const maxMonth = 12;
+    const birthDate = child.birthDateAsDate;
+    const { maxMonth, minY, maxY } = growthAxisBounds;
 
     return growthRecords.map((rec, idx) => {
       const val = rec.amount ?? 0;
-      const ageMonths = !Number.isNaN(birthMs)
-        ? Math.max(
-            0,
-            (rec.startTime.getTime() - birthMs) /
-              (30.44 * 24 * 60 * 60 * 1000)
-          )
+      const ageMonths = !Number.isNaN(birthDate.getTime())
+        ? calculateAgeInMonths(birthDate, rec.startTime)
         : idx * 2;
       const xRatio =
         growthRecords.length === 1
-          ? 0.5
+          ? Math.min(0.95, Math.max(0.05, ageMonths / maxMonth))
           : Math.min(1, Math.max(0, ageMonths / maxMonth));
-      const yRatio =
-        (val - activeGrowthConfig.minY) /
-        (activeGrowthConfig.maxY - activeGrowthConfig.minY);
+      const yRatio = (val - minY) / Math.max(1, maxY - minY);
 
       return {
         id: rec.id,
@@ -701,15 +1046,30 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
         value: Number(val.toFixed(1)),
       };
     });
-  }, [activeGrowthConfig, child.birthDateAsDate, growthRecords]);
+  }, [child.birthDateAsDate, growthAxisBounds, growthRecords]);
 
   const growthBandPoints = useMemo(() => {
-    return activeGrowthConfig.refBand.map((b) => ({
-      xRatio: b.month / 12,
-      low: b.low,
-      high: b.high,
+    const { maxMonth } = growthAxisBounds;
+    const relevantPoints = genderPercentileCurve.filter(
+      (pt) => pt.month <= maxMonth
+    );
+    const endSample = interpolatePercentileAtMonth(
+      genderPercentileCurve,
+      maxMonth
+    );
+    const merged = [
+      ...relevantPoints,
+      ...(relevantPoints.some((p) => p.month === maxMonth)
+        ? []
+        : [{ month: maxMonth, ...endSample }]),
+    ];
+    return merged.map((b) => ({
+      xRatio: b.month / maxMonth,
+      low: b.p3,
+      median: b.p50,
+      high: b.p97,
     }));
-  }, [activeGrowthConfig]);
+  }, [genderPercentileCurve, growthAxisBounds]);
 
   // ============================================================================
   // 2. 食事・排泄の週単位タイムプロットデータ
@@ -744,6 +1104,17 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
       const rawEvents: RawDayTimelineEvent[] = dayRecords.map((rec) => {
         const minutesOfDay =
           rec.startTime.getHours() * 60 + rec.startTime.getMinutes();
+        const endMinutesOfDay = rec.endTime
+          ? Math.min(
+              1440,
+              Math.max(
+                minutesOfDay + 30,
+                Math.round(
+                  (rec.endTime.getTime() - dayStart.getTime()) / (60 * 1000)
+                )
+              )
+            )
+          : null;
         const meta = rec.parsedMetadata;
         let icon = RECORD_CATEGORY_CONFIGS[rec.category]?.icon ?? '📝';
         let color =
@@ -781,6 +1152,7 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
           record: rec,
           category: rec.category,
           minutesOfDay,
+          endMinutesOfDay,
           timeStr: formatHm(rec.startTime),
           icon,
           color,
@@ -822,6 +1194,7 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
     const sleepRecords = records.filter(
       (r) => r.category === RecordCategory.SLEEP
     );
+    const nowMs = Date.now();
 
     return weekDays.map((dayStart) => {
       const dayStartMs = dayStart.getTime();
@@ -839,14 +1212,18 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
         startMinute: number;
         endMinute: number;
         label: string;
+        durationMinutes: number;
         durationHours: number;
+        isOngoing: boolean;
       }> = [];
 
       for (const rec of sleepRecords) {
         const sMs = rec.startTime.getTime();
+        const isOngoing = rec.endTime === null;
+        // 終了未入力時は現在時刻までの暫定バーとして表示（現在時刻が開始より前の場合は最小15分）
         const eMs = rec.endTime
           ? rec.endTime.getTime()
-          : sMs + 60 * 60 * 1000; // 終了未入力時は1時間ブロックとして表示
+          : Math.max(sMs + 15 * 60 * 1000, nowMs);
 
         // 当日と重なる区間を切り出す（日跨ぎ睡眠も正確に分割表示）
         const overlapStart = Math.max(sMs, dayStartMs);
@@ -855,34 +1232,47 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
         if (overlapEnd > overlapStart) {
           const startMin = (overlapStart - dayStartMs) / (60 * 1000);
           const endMin = (overlapEnd - dayStartMs) / (60 * 1000);
-          const durHours = (endMin - startMin) / 60;
+          const durMinutes = endMin - startMin;
+          const durHours = durMinutes / 60;
           blocks.push({
             id: `${rec.id}-${dayStartMs}`,
             startMinute: startMin,
             endMinute: endMin,
-            label: `${formatHm(new Date(overlapStart))}〜${formatHm(
-              new Date(overlapEnd)
-            )}`,
+            label: isOngoing
+              ? `${formatHm(new Date(overlapStart))}〜睡眠中`
+              : `${formatHm(new Date(overlapStart))}〜${formatHm(
+                  new Date(overlapEnd)
+                )}`,
+            durationMinutes: durMinutes,
             durationHours: durHours,
+            isOngoing,
           });
         }
       }
 
-      const totalHours = blocks.reduce((acc, b) => acc + b.durationHours, 0);
+      const totalMinutes = blocks.reduce(
+        (acc, b) => acc + b.durationMinutes,
+        0
+      );
+      const totalHours = totalMinutes / 60;
 
       return {
         date: dayStart,
         blocks,
+        totalMinutes: Math.round(totalMinutes),
         totalHours: Number(totalHours.toFixed(1)),
       };
     });
   }, [records, weekDays]);
 
-  const weeklyAverageSleepHours = useMemo(() => {
-    const daysWithSleep = weeklySleepByDay.filter((d) => d.totalHours > 0);
-    if (daysWithSleep.length === 0) return 0;
-    const sum = daysWithSleep.reduce((acc, d) => acc + d.totalHours, 0);
-    return Number((sum / daysWithSleep.length).toFixed(1));
+  // 要件定義 FR-05 準拠: 7日間の睡眠0の日も含めた分単位按分による週平均睡眠時間
+  const weeklyAverageSleepMinutes = useMemo(() => {
+    if (weeklySleepByDay.length === 0) return 0;
+    const totalWeekMinutes = weeklySleepByDay.reduce(
+      (acc, d) => acc + d.totalMinutes,
+      0
+    );
+    return Math.round(totalWeekMinutes / 7);
   }, [weeklySleepByDay]);
 
   // ============================================================================
@@ -941,21 +1331,23 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
           </Text>
         </View>
 
-        <TouchableOpacity
-          style={[
-            styles.sampleButton,
-            {
-              backgroundColor: theme.primarySoftBg,
-              borderColor: theme.primaryBorder,
-            },
-          ]}
-          onPress={handleSeedSamples}
-          disabled={isSeeding}
-        >
-          <Text style={[styles.sampleButtonText, { color: theme.primary }]}>
-            {isSeeding ? '投入中...' : '✨ サンプル補完'}
-          </Text>
-        </TouchableOpacity>
+        {canWrite ? (
+          <TouchableOpacity
+            style={[
+              styles.sampleButton,
+              {
+                backgroundColor: theme.primarySoftBg,
+                borderColor: theme.primaryBorder,
+              },
+            ]}
+            onPress={handleSeedSamples}
+            disabled={isSeeding}
+          >
+            <Text style={[styles.sampleButtonText, { color: theme.primary }]}>
+              {isSeeding ? '投入中...' : '✨ サンプル補完'}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {/* 4つのグラフ切り替えナビゲーション */}
@@ -1056,29 +1448,31 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
                   <Text
                     style={[styles.cardSubtitle, { color: theme.textSecondary }]}
                   >
-                    背景の薄色帯は月齢別の標準発育目安（0〜12ヶ月）
+                    背景帯は性別（{GENDER_LABELS[child.gender]}）の3〜97パーセンタイル帯と中央値破線（0〜{growthAxisBounds.maxMonth}ヶ月）
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={[
-                    styles.quickRecordButton,
-                    { backgroundColor: activeGrowthConfig.color },
-                  ]}
-                  onPress={() => onOpenCreateModal(selectedGrowthMetric)}
-                >
-                  <Text style={styles.quickRecordButtonText}>
-                    ＋ {activeGrowthConfig.label}を記録
-                  </Text>
-                </TouchableOpacity>
+                {canWrite ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.quickRecordButton,
+                      { backgroundColor: theme.primaryButtonBg },
+                    ]}
+                    onPress={() => onOpenCreateModal(selectedGrowthMetric)}
+                  >
+                    <Text style={styles.quickRecordButtonText}>
+                      ＋ {activeGrowthConfig.label}を記録
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               {growthChartPoints.length > 0 ? (
                 <PolylineChart
                   points={growthChartPoints}
-                  minY={activeGrowthConfig.minY}
-                  maxY={activeGrowthConfig.maxY}
+                  minY={growthAxisBounds.minY}
+                  maxY={growthAxisBounds.maxY}
                   unit={activeGrowthConfig.unit}
-                  lineColor={activeGrowthConfig.color}
+                  lineColor={theme.primary}
                   bandPoints={growthBandPoints}
                 />
               ) : (
@@ -1302,18 +1696,20 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
                   <Text
                     style={[styles.cardSubtitle, { color: theme.textSecondary }]}
                   >
-                    縦軸が時間帯（0時〜24時）、横軸が各曜日の実施タイミング（クリックで編集）
+                    縦軸が時間帯（0時〜24時・最小占有枠30分）、横軸が各曜日の実施タイミング
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={[
-                    styles.quickRecordButton,
-                    { backgroundColor: '#F97316' },
-                  ]}
-                  onPress={() => onOpenCreateModal(RecordCategory.MILK)}
-                >
-                  <Text style={styles.quickRecordButtonText}>＋ 記録追加</Text>
-                </TouchableOpacity>
+                {canWrite ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.quickRecordButton,
+                      { backgroundColor: '#F97316' },
+                    ]}
+                    onPress={() => onOpenCreateModal(RecordCategory.MILK)}
+                  >
+                    <Text style={styles.quickRecordButtonText}>＋ 記録追加</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               {/* 凡例 */}
@@ -1435,12 +1831,17 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
                       {dayCol.events.map((ev) => (
                         <TouchableOpacity
                           key={ev.id}
-                          activeOpacity={onEditRecord ? 0.75 : 1}
-                          onPress={() => onEditRecord?.(ev.record)}
+                          activeOpacity={canWrite && onEditRecord ? 0.75 : 1}
+                          onPress={() => {
+                            if (canWrite) {
+                              onEditRecord?.(ev.record);
+                            }
+                          }}
                           style={[
                             styles.eventMarkerBadge,
                             {
                               top: `${ev.topPct}%`,
+                              height: `${Math.max(2.1, ev.heightPct)}%`,
                               left: `${ev.leftPct + 0.8}%`,
                               width: `${Math.max(12, ev.widthPct - 1.6)}%`,
                               borderColor: ev.color,
@@ -1589,18 +1990,21 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
                   <Text
                     style={[styles.cardSubtitle, { color: theme.textSecondary }]}
                   >
-                    週平均睡眠時間: 1日あたり {weeklyAverageSleepHours} 時間
+                    週平均睡眠時間（7日間按分）: 1日あたり{' '}
+                    {formatMinutesToHoursMinutes(weeklyAverageSleepMinutes)}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={[
-                    styles.quickRecordButton,
-                    { backgroundColor: '#6366F1' },
-                  ]}
-                  onPress={() => onOpenCreateModal(RecordCategory.SLEEP)}
-                >
-                  <Text style={styles.quickRecordButtonText}>＋ 睡眠を記録</Text>
-                </TouchableOpacity>
+                {canWrite ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.quickRecordButton,
+                      { backgroundColor: '#6366F1' },
+                    ]}
+                    onPress={() => onOpenCreateModal(RecordCategory.SLEEP)}
+                  >
+                    <Text style={styles.quickRecordButtonText}>＋ 睡眠を記録</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               {/* 24時間 × 7日間 睡眠バーチャート */}
@@ -1710,11 +2114,30 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
                                 top: `${topPct}%`,
                                 height: `${heightPct}%`,
                               },
+                              blk.isOngoing && {
+                                backgroundColor: theme.isDark
+                                  ? 'rgba(99, 102, 241, 0.45)'
+                                  : 'rgba(99, 102, 241, 0.25)',
+                                borderWidth: 1.5,
+                                borderColor: '#6366F1',
+                                borderStyle: 'dashed',
+                              },
                             ]}
                           >
                             {heightPct >= 8 ? (
-                              <Text style={styles.sleepBlockText}>
-                                {blk.durationHours.toFixed(1)}h
+                              <Text
+                                style={[
+                                  styles.sleepBlockText,
+                                  blk.isOngoing && {
+                                    color: theme.isDark ? '#E0E7FF' : '#312E81',
+                                  },
+                                ]}
+                              >
+                                {blk.isOngoing
+                                  ? '睡眠中'
+                                  : formatMinutesToHoursMinutes(
+                                      blk.durationMinutes
+                                    )}
                               </Text>
                             ) : null}
                           </View>
@@ -1740,7 +2163,7 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
                           },
                         ]}
                       >
-                        {dayCol.totalHours}h
+                        {formatMinutesToHoursMinutes(dayCol.totalMinutes)}
                       </Text>
                     </View>
                   </View>
@@ -1779,7 +2202,7 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
                       { color: theme.isDark ? '#818CF8' : '#4F46E5' },
                     ]}
                   >
-                    計 {d.totalHours} 時間
+                    計 {formatMinutesToHoursMinutes(d.totalMinutes)}
                   </Text>
                 </View>
               ))}
@@ -1809,15 +2232,17 @@ const RawAnalyticsScreen: React.FC<AnalyticsScreenInjectedProps> = ({
                     赤破線は発熱目安ライン（37.5℃）を表します
                   </Text>
                 </View>
-                <TouchableOpacity
-                  style={[
-                    styles.quickRecordButton,
-                    { backgroundColor: '#EF4444' },
-                  ]}
-                  onPress={() => onOpenCreateModal(RecordCategory.BODY_TEMP)}
-                >
-                  <Text style={styles.quickRecordButtonText}>＋ 体温を記録</Text>
-                </TouchableOpacity>
+                {canWrite ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.quickRecordButton,
+                      { backgroundColor: '#EF4444' },
+                    ]}
+                    onPress={() => onOpenCreateModal(RecordCategory.BODY_TEMP)}
+                  >
+                    <Text style={styles.quickRecordButtonText}>＋ 体温を記録</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               {bodyTempPoints.length > 0 ? (
@@ -2397,7 +2822,7 @@ const styles = StyleSheet.create({
   },
   eventMarkerBadge: {
     position: 'absolute',
-    height: 20,
+    minHeight: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

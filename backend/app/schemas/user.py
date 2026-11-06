@@ -1,28 +1,34 @@
 import uuid
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.enums import RelationshipType, UserRole
+from app.models.enums import RelationshipType, ThemeMode, UserRole
 
 
 class UserBase(BaseModel):
-    name: str = Field(..., max_length=255)
-    relationship: RelationshipType
+    name: str = Field(..., min_length=1, max_length=100)
+    relationship: RelationshipType = RelationshipType.OTHER
     role: UserRole = UserRole.EDITOR
-    theme_mode: str = Field(default="light", max_length=16)
+    theme_mode: ThemeMode = ThemeMode.LIGHT
 
 
 class UserCreate(UserBase):
-    pass
+    id: uuid.UUID | None = None
+    updated_at: datetime | None = None
 
 
 class UserUpdate(BaseModel):
-    name: str | None = Field(default=None, max_length=255)
+    name: str | None = Field(default=None, min_length=1, max_length=100)
     relationship: RelationshipType | None = None
     role: UserRole | None = None
-    theme_mode: str | None = Field(default=None, max_length=16)
+    theme_mode: ThemeMode | None = None
+    updated_at: datetime | None = None
 
 
 class UserRead(UserBase):
     id: uuid.UUID
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)

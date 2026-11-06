@@ -12,9 +12,11 @@ import {
 
 import { Record as RecordModel } from '../db';
 import {
+  AMOUNT_RANGES,
   RECORD_CATEGORY_CONFIGS,
   RecordCategory,
   RecordMetadata,
+  validateRecordFormInput,
 } from '../types';
 import {
   createRecordOffline,
@@ -288,44 +290,59 @@ export const RecordFormScreen: React.FC<RecordFormScreenProps> = ({
     }
   }, []);
 
+  /**
+   * 入力値の厳密バリデーション（PRD 4.3.A: 数値許容レンジ & 日時妥当性 & end_time >= start_time）
+   */
+  const validation = useMemo(
+    () =>
+      validateRecordFormInput({
+        category,
+        hasAmount: Boolean(activeConfig.hasAmount),
+        hasDuration: Boolean(activeConfig.hasDuration),
+        amountInput,
+        durationMinutesInput,
+        startOffsetMinutes,
+        customDateInput,
+        customTimeInput,
+      }),
+    [
+      activeConfig.hasAmount,
+      activeConfig.hasDuration,
+      amountInput,
+      category,
+      customDateInput,
+      customTimeInput,
+      durationMinutesInput,
+      startOffsetMinutes,
+    ]
+  );
+
   const handleSave = useCallback(async () => {
-    if (isSaving || (isEditMode && !hasChanges)) {
+    if (
+      isSaving ||
+      !validation.isValid ||
+      !validation.parsedStartTime ||
+      (isEditMode && !hasChanges)
+    ) {
       return;
     }
     setIsSaving(true);
 
     try {
       let startTime: Date;
-      if (startOffsetMinutes !== null) {
-        startTime = new Date(Date.now() - startOffsetMinutes * 60 * 1000);
-      } else if (
+      if (
         editingRecord &&
+        startOffsetMinutes === null &&
         customDateInput.trim() === formatDateYmd(editingRecord.startTime) &&
         customTimeInput.trim() === formatTimeHm(editingRecord.startTime)
       ) {
         startTime = editingRecord.startTime;
       } else {
-        const parsedCustom = new Date(
-          `${customDateInput.trim()}T${customTimeInput.trim() || '09:00'}:00`
-        );
-        startTime = Number.isNaN(parsedCustom.getTime())
-          ? new Date()
-          : parsedCustom;
+        startTime = validation.parsedStartTime;
       }
 
-      const parsedDuration = Number.parseFloat(durationMinutesInput);
-      const endTime =
-        activeConfig.hasDuration &&
-        !Number.isNaN(parsedDuration) &&
-        parsedDuration > 0
-          ? new Date(startTime.getTime() + parsedDuration * 60 * 1000)
-          : null;
-
-      const parsedAmount = Number.parseFloat(amountInput);
-      const amount =
-        activeConfig.hasAmount && !Number.isNaN(parsedAmount)
-          ? parsedAmount
-          : null;
+      const endTime = validation.parsedEndTime;
+      const amount = validation.parsedAmount;
 
       const metadata: RecordMetadata = {
         is_auto_recorded: editingRecord
@@ -380,13 +397,10 @@ export const RecordFormScreen: React.FC<RecordFormScreenProps> = ({
     }
   }, [
     activeConfig.hasAmount,
-    activeConfig.hasDuration,
-    amountInput,
     category,
     childId,
     customDateInput,
     customTimeInput,
-    durationMinutesInput,
     editingRecord,
     excretionType,
     hasChanges,
@@ -399,9 +413,11 @@ export const RecordFormScreen: React.FC<RecordFormScreenProps> = ({
     showItemNameField,
     startOffsetMinutes,
     unit,
+    validation,
   ]);
 
-  const isSubmitDisabled = isSaving || (isEditMode && !hasChanges);
+  const isSubmitDisabled =
+    isSaving || !validation.isValid || (isEditMode && !hasChanges);
 
   return (
     <KeyboardAvoidingView
@@ -448,6 +464,30 @@ export const RecordFormScreen: React.FC<RecordFormScreenProps> = ({
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
+        {validation.errorMessage ? (
+          <View
+            style={{
+              backgroundColor: theme.dangerSoftBg,
+              borderColor: theme.dangerBorder,
+              borderWidth: 1,
+              borderRadius: 10,
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              marginBottom: 12,
+            }}
+          >
+            <Text
+              style={{
+                color: theme.dangerText,
+                fontSize: 12,
+                fontWeight: '700',
+              }}
+            >
+              ⚠️ {validation.errorMessage}
+            </Text>
+          </View>
+        ) : null}
+
         {/* ワンタップ家庭内ルールプリセット */}
         <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>
           ⚡ ワンタップ入力（家庭内ルール）
@@ -569,6 +609,9 @@ export const RecordFormScreen: React.FC<RecordFormScreenProps> = ({
           <View style={styles.fieldGroup}>
             <Text style={[styles.sectionLabel, { color: theme.textSecondary }]}>
               2. 数量・測定値
+              {AMOUNT_RANGES[category]
+                ? ` （許容範囲: ${AMOUNT_RANGES[category]?.min}〜${AMOUNT_RANGES[category]?.max} ${AMOUNT_RANGES[category]?.unitLabel}）`
+                : ''}
             </Text>
             <View style={styles.amountInputRow}>
               <TextInput
